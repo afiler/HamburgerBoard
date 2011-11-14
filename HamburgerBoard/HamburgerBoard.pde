@@ -7,24 +7,24 @@ static uint8_t myip[4] = {10,15,4,222};
 #define MYWWWPORT 80
 #define BUFFER_SIZE 550
 #define PAGING_INTERVAL 2000
-
 //
 
 static uint8_t buf[BUFFER_SIZE+1];
-char screen1a[80] = ".";
-char screen1b[80] = "..";
-char screen2a[80] = "...";
-char screen2b[80] = "....";
-char screen3a[80] = ".....";
-char screen3b[80] = "......";
+char screen1a[80] = "METRIX CREATE SPACE   hack       make";
+char screen1b[80] = "METRIX CREATE SPACE   build    create";
+char screen2a[80] = " Bottomless Toolbox      $5/hour";
+char screen2b[80] = "        Free     Intertubes";
+char screen3a[80] = " Open Noon-Midnight      Everyday";
+char screen3b[80] = " Open Noon-Midnight     Come on in";
 
 byte screenPage = 0;
-unsigned long time;
+unsigned long time1;
+unsigned long time2;
 
 EtherShield es=EtherShield();
 
 void setup(){
-  time = millis();
+  time1 = millis();
   
   Serial.begin(9600);
   Serial.println("Hello.");
@@ -49,65 +49,65 @@ void loop(){
   int8_t cmd;
   
   while(true) {
-    //if (time+PAGING_INTERVAL > millis()) handle_scrolling();
+    time2 = millis();
+    if (time1+PAGING_INTERVAL < millis()) {
+      handle_scrolling();
+      time1 = time2;
+    }
+    
+    // read packet, handle ping and wait for a tcp packet:
+    dat_p=es.ES_packetloop_icmp_tcp(buf,es.ES_enc28j60PacketReceive(BUFFER_SIZE, buf));
 
-      // read packet, handle ping and wait for a tcp packet:
-      dat_p=es.ES_packetloop_icmp_tcp(buf,es.ES_enc28j60PacketReceive(BUFFER_SIZE, buf));
+    //Serial.println("got a packet");
 
-      //Serial.println("got a packet");
+    /* dat_p will be unequal to zero if there is a valid 
+     * http get */
+    if(dat_p==0){
+      // no http request
+      continue;
+    }
+    // tcp port 80 begin
+    if (strncmp("GET ",(char *)&(buf[dat_p]),4)!=0){
+      //Serial.println("got an HTTP packet");
+      // head, post and other methods:
+      dat_p=http200ok();
+      dat_p=es.ES_fill_tcp_data_p(buf,dat_p,PSTR("<h1>200 OK</h1>"));
+      goto SENDTCP;
+    }
 
-      /* dat_p will be unequal to zero if there is a valid 
-       * http get */
-      if(dat_p==0){
-        // no http request
-        return;
-      }
-      // tcp port 80 begin
-      if (strncmp("GET ",(char *)&(buf[dat_p]),4)!=0){
-        //Serial.println("got an HTTP packet");
-        // head, post and other methods:
-        dat_p=http200ok();
-        dat_p=es.ES_fill_tcp_data_p(buf,dat_p,PSTR("<h1>200 OK</h1>"));
-        goto SENDTCP;
-      }
+    // root web page
+    if (strncmp("/ ",(char *)&(buf[dat_p+4]),2)==0) {
+      dat_p=print_webpage(buf);
+      goto SENDTCP;
+    } else if (strncmp("/?",(char *)&(buf[dat_p+4]),2)==0) {
+      cmd = handle_get_url((char *)&(buf[dat_p+4]));
 
-      // root web page
-      if (strncmp("/ ",(char *)&(buf[dat_p+4]),2)==0) {
+      if (cmd==2) {
         dat_p=print_webpage(buf);
         goto SENDTCP;
-      } else if (strncmp("/?",(char *)&(buf[dat_p+4]),2)==0) {
-        cmd = handle_get_url((char *)&(buf[dat_p+4]));
+      }
 
-        if (cmd==2) {
-          dat_p=print_webpage(buf);
-          goto SENDTCP;
-        }
-
-        if (cmd==1) {
-          refresh_display();
-          dat_p=print_webpage(buf);
-          goto SENDTCP;
-        }
+      if (cmd==1) {
+        refresh_display();
+        dat_p=print_webpage(buf);
         goto SENDTCP;
       }
-      else{
-        dat_p=es.ES_fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Unauthorized</h1>"));
-        goto SENDTCP;
-      }
-    SENDTCP:
-      es.ES_www_server_reply(buf,dat_p); // send web page data
+      goto SENDTCP;
+    } else {
+      dat_p=es.ES_fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Unauthorized</h1>"));
+      goto SENDTCP;
     }
+    SENDTCP:
+    es.ES_www_server_reply(buf,dat_p); // send web page data
+    
+  }
 
 }
 
 void handle_scrolling() {
   screenPage = ++screenPage % 2;
-  time = millis();
+  time1 = millis();
   refresh_display();
-}
-
-void handle_network() {
-
 }
 
 void refresh_display() {
@@ -136,21 +136,6 @@ int8_t handle_get_url(char *str) {
     // end of url, display just the web page
     return(2);
   }
-  // str is now something like ?pw=secret&mn=0 or just end of url
-  /*if (es.ES_find_key_val(str,kvalstrbuf,10,"mn")){
-    if (kvalstrbuf[0]=='1'){
-      mn=1;
-    }
-    // to change the mail notification one needs also a valid passw:
-    if (es.ES_find_key_val(str,kvalstrbuf,10,"pw")){
-      if (verify_password(kvalstrbuf)){
-        return(mn);
-      }
-      else{
-        return(-1);
-      }
-    }
-  }*/
   
   if ( (find_key_val(str, screen1a, 80, "screen1a") || true) &&
        (find_key_val(str, screen1b, 80, "screen1b") || true) &&
@@ -181,24 +166,27 @@ uint16_t print_webpage(uint8_t *buf)
 {
   uint16_t plen;
   plen=http200ok();
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<html><head><title>Metrix VFD</title>"));
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<script src=\"http://gir.seattlewireless.net/~andyf/hamburgerboard/hamburgerboard.js\"></script></head>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<html><head><title>Metrix VFD</title>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<script src=\"http://gir.seattlewireless.net/~andyf/hamburgerboard/hamburgerboard.js\"></script></head>"));
 
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<body><form>"));
+  /*plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<body><form>"));
 
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen1a\" />"));
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen1b\" /><hr/>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen1a\" />"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen1b\" /><hr/>"));
 
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen2a\" />"));
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen2b\" /><hr/>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen2a\" />"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen2b\" /><hr/>"));
 
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen3a\" />"));
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen3b\" /><hr/>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen3a\" />"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"text\" name=\"screen3b\" /><hr/>"));
 
-plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"submit\" value=\">>\" /></form></body></html>"));
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<input type=\"submit\" value=\">>\" /></form>")); */
+  plen=es.ES_fill_tcp_data_p(buf,plen,PSTR("<body></body></html>"));
 
 
   return(plen);
 }
+
+
 
 
